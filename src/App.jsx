@@ -17,6 +17,231 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
+// ─── Tutorial System ──────────────────────────────────────────────────────────
+const TUTORIAL_STEPS = [
+  {
+    id: "forecast-date",
+    target: '[data-tour="forecast-date"]',
+    title: "Forecast Date",
+    body: "Change the date here to reload AI predictions for that day. Each date shows a different hotspot landscape.",
+    position: "bottom",
+  },
+  {
+    id: "hour-slider",
+    target: '[data-tour="hour-slider"]',
+    title: "Change Time → See Heatmap Shift",
+    body: "Drag this slider to move through hours of the day. The heatmap on the map updates live to show violation intensity at that hour.",
+    position: "bottom",
+  },
+  {
+    id: "map-area",
+    target: '[data-tour="map-area"]',
+    title: "Heatmap Lives Here",
+    body: "This is the predictive tactical map. Coloured clusters show where illegal parking risk is highest. Touch or click any marker to inspect a hotspot.",
+    position: "right",
+  },
+  {
+    id: "explain-sidebar",
+    target: '[data-tour="explain-sidebar"]',
+    title: "Why This Risk?",
+    body: "This panel explains why the model flagged a zone — violation frequency, junction proximity, vehicle mix, and more.",
+    position: "left",
+  },
+  {
+    id: "patrol-dispatch",
+    target: '[data-tour="patrol-dispatch"]',
+    title: "Patrol Dispatch",
+    body: "Switch to VIEW 02 to get concrete enforcement instructions: where to deploy, when to arrive, and what action to take.",
+    position: "bottom",
+  },
+  {
+    id: "hotspot-ranking",
+    target: '[data-tour="hotspot-ranking"]',
+    title: "Hotspot Ranking Table",
+    body: "All active clusters ranked by risk score. Click any row to focus on that zone in the map view.",
+    position: "top",
+    requiresView: "dispatch",
+  },
+  {
+    id: "hourly-curve",
+    target: '[data-tour="hourly-curve"]',
+    title: "Total Hourly Violations",
+    body: "This curve shows how violations distribute across 24 hours. The cyan line marks your current selected hour.",
+    position: "top",
+    requiresView: "dispatch",
+  },
+];
+
+function getRect(selector) {
+  const el = document.querySelector(selector);
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return { top: r.top, left: r.left, width: r.width, height: r.height, bottom: r.bottom, right: r.right };
+}
+
+function TutorialOverlay({ onFinish, setActiveView }) {
+  const [step, setStep] = useState(0);
+  const [rect, setRect] = useState(null);
+  const [visible, setVisible] = useState(false);
+  const current = TUTORIAL_STEPS[step];
+
+  const updateRect = () => {
+    if (!current) return;
+    const r = getRect(current.target);
+    setRect(r);
+    setVisible(!!r);
+  };
+
+  useEffect(() => {
+    if (current?.requiresView) {
+      setActiveView(current.requiresView);
+    }
+    const t = setTimeout(updateRect, 350);
+    window.addEventListener("resize", updateRect);
+    return () => { clearTimeout(t); window.removeEventListener("resize", updateRect); };
+  }, [step]);
+
+  const next = () => {
+    if (step < TUTORIAL_STEPS.length - 1) setStep(step + 1);
+    else onFinish();
+  };
+
+  const skip = () => onFinish();
+
+  if (!visible || !rect) return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none">
+      <div className="pointer-events-auto bg-slate-900 border border-cyan-500/30 rounded-xl p-5 text-xs text-slate-300 font-mono animate-pulse">
+        Loading tutorial step…
+      </div>
+    </div>
+  );
+
+  const PAD = 12;
+  const spotlight = {
+    top: rect.top - PAD,
+    left: rect.left - PAD,
+    width: rect.width + PAD * 2,
+    height: rect.height + PAD * 2,
+    borderRadius: 12,
+  };
+
+  // Tooltip position logic
+  const TOOLTIP_W = 300;
+  const TOOLTIP_H = 160;
+  let tooltipStyle = {};
+  const { position } = current;
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+
+  if (position === "bottom") {
+    tooltipStyle = { top: spotlight.top + spotlight.height + 16, left: Math.max(12, centerX - TOOLTIP_W / 2) };
+  } else if (position === "top") {
+    tooltipStyle = { top: spotlight.top - TOOLTIP_H - 16, left: Math.max(12, centerX - TOOLTIP_W / 2) };
+  } else if (position === "right") {
+    tooltipStyle = { top: Math.max(12, centerY - TOOLTIP_H / 2), left: spotlight.left + spotlight.width + 16 };
+  } else {
+    tooltipStyle = { top: Math.max(12, centerY - TOOLTIP_H / 2), left: spotlight.left - TOOLTIP_W - 16 };
+  }
+  // Clamp to viewport
+  if (tooltipStyle.left + TOOLTIP_W > window.innerWidth - 12) tooltipStyle.left = window.innerWidth - TOOLTIP_W - 12;
+  if (tooltipStyle.left < 12) tooltipStyle.left = 12;
+  if (tooltipStyle.top + TOOLTIP_H > window.innerHeight - 12) tooltipStyle.top = window.innerHeight - TOOLTIP_H - 12;
+  if (tooltipStyle.top < 12) tooltipStyle.top = 12;
+
+  return (
+    <div className="fixed inset-0 z-[9998]" style={{ pointerEvents: "all" }}>
+      {/* SVG cutout overlay */}
+      <svg
+        className="absolute inset-0 w-full h-full"
+        style={{ pointerEvents: "none" }}
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <mask id="tour-mask">
+            <rect width="100%" height="100%" fill="white" />
+            <rect
+              x={spotlight.left}
+              y={spotlight.top}
+              width={spotlight.width}
+              height={spotlight.height}
+              rx={spotlight.borderRadius}
+              fill="black"
+            />
+          </mask>
+        </defs>
+        <rect width="100%" height="100%" fill="rgba(2,6,23,0.82)" mask="url(#tour-mask)" />
+        {/* Spotlight border glow */}
+        <rect
+          x={spotlight.left}
+          y={spotlight.top}
+          width={spotlight.width}
+          height={spotlight.height}
+          rx={spotlight.borderRadius}
+          fill="none"
+          stroke="#22d3ee"
+          strokeWidth="2"
+          strokeOpacity="0.8"
+        />
+        {/* Animated corner accents */}
+        {[
+          [spotlight.left, spotlight.top],
+          [spotlight.left + spotlight.width, spotlight.top],
+          [spotlight.left, spotlight.top + spotlight.height],
+          [spotlight.left + spotlight.width, spotlight.top + spotlight.height],
+        ].map(([cx, cy], i) => (
+          <circle key={i} cx={cx} cy={cy} r="4" fill="#22d3ee" opacity="0.9" />
+        ))}
+      </svg>
+
+      {/* Tooltip card */}
+      <div
+        style={{
+          position: "fixed",
+          width: TOOLTIP_W,
+          ...tooltipStyle,
+          zIndex: 9999,
+          pointerEvents: "all",
+          transition: "all 0.25s cubic-bezier(.4,0,.2,1)",
+        }}
+        className="bg-slate-950 border border-cyan-500/40 rounded-xl p-4 shadow-2xl shadow-cyan-500/10"
+      >
+        {/* Step indicator dots */}
+        <div className="flex gap-1 mb-3">
+          {TUTORIAL_STEPS.map((_, i) => (
+            <div
+              key={i}
+              className={`h-1 rounded-full transition-all duration-300 ${i === step ? "bg-cyan-400 w-4" : i < step ? "bg-cyan-700 w-2" : "bg-slate-700 w-2"}`}
+            />
+          ))}
+        </div>
+
+        <p className="text-[10px] font-mono text-cyan-400 tracking-widest uppercase mb-1">
+          Step {step + 1} of {TUTORIAL_STEPS.length}
+        </p>
+        <h3 className="text-sm font-semibold text-white mb-1.5">{current.title}</h3>
+        <p className="text-xs text-slate-400 leading-relaxed mb-4">{current.body}</p>
+
+        <div className="flex items-center justify-between">
+          <button
+            onClick={skip}
+            className="text-[10px] font-mono text-slate-600 hover:text-slate-400 transition-colors tracking-wide"
+          >
+            SKIP TUTORIAL
+          </button>
+          <button
+            onClick={next}
+            className="flex items-center gap-1.5 text-xs font-mono px-3 py-1.5 rounded-md bg-cyan-500/15 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/25 transition-colors"
+          >
+            {step < TUTORIAL_STEPS.length - 1 ? "NEXT →" : "DONE ✓"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── End Tutorial System ───────────────────────────────────────────────────────
+
 // --- Static Reference Calendars ---
 const WEEKDAYS_LONG = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
 const WEEKDAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -183,6 +408,7 @@ export default function App() {
   const [mapEngine, setMapEngine] = useState(null);
   const [activeMarkers, setActiveMarkers] = useState([]);
   const [heatmapLayer, setHeatmapLayer] = useState(null);
+  const [showTutorial, setShowTutorial] = useState(true);
 
   const MAP_SDK_KEY = "99b2c63c275da11716d06b3d65337b1a";
   const dateInfo = useMemo(() => getDateInfo(forecastDate), [forecastDate]);
@@ -468,6 +694,12 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200">
+      {showTutorial && !loading && (
+        <TutorialOverlay
+          onFinish={() => setShowTutorial(false)}
+          setActiveView={setActiveView}
+        />
+      )}
       <div className="max-w-7xl mx-auto p-4 sm:p-6 flex flex-col gap-4">
         {/* Header Module */}
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
@@ -497,7 +729,7 @@ export default function App() {
 
         {/* Filters Panel */}
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col lg:flex-row lg:items-end gap-4">
-          <div>
+          <div data-tour="forecast-date">
             <label className="text-[10px] font-mono tracking-wider text-slate-500">FORECAST DATE</label>
             <div className="relative mt-1">
               <input
@@ -508,7 +740,7 @@ export default function App() {
               />
             </div>
           </div>
-          <div className="flex-1">
+          <div className="flex-1" data-tour="hour-slider">
             <div className="flex items-center justify-between">
               <label className="text-[10px] font-mono tracking-wider text-slate-500">HOUR OF DAY</label>
               <span className="text-xs font-mono text-cyan-300">{pad2(hourOfDay)}:00 · {dateInfo.weekdayLong}</span>
@@ -556,6 +788,7 @@ export default function App() {
             VIEW 01 · Tactical Map
           </button>
           <button
+            data-tour="patrol-dispatch"
             onClick={() => setActiveView("dispatch")}
             className={`text-xs font-mono px-3 py-1.5 rounded-md border tracking-wide ${
               activeView === "dispatch" ? "border-cyan-500/50 bg-cyan-500/10 text-cyan-300" : "border-slate-800 text-slate-500 hover:text-slate-300"
@@ -578,7 +811,7 @@ export default function App() {
               </div>
 
               {/* Mappls Canvas Container */}
-              <div className="relative flex-1 overflow-hidden" style={{ minHeight: 460 }}>
+              <div data-tour="map-area" className="relative flex-1 overflow-hidden" style={{ minHeight: 460 }}>
                 <div 
                   id="mappls-map-container" 
                   style={{ height: "100%", width: "100%", backgroundColor: "#0b0f19" }} 
@@ -620,7 +853,7 @@ export default function App() {
             </div>
 
             {/* Feature Explainability Sidebar */}
-            <div className="lg:w-96 bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col gap-4">
+            <div data-tour="explain-sidebar" className="lg:w-96 bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col gap-4">
               <div className="flex items-center justify-between"><Eyebrow>EXPLAIN</Eyebrow></div>
               <div>
                 <h3 className="text-sm font-semibold text-white">Why this risk?</h3>
@@ -737,7 +970,7 @@ export default function App() {
 
             {/* Ranking Table & Curves */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 overflow-x-auto">
+              <div data-tour="hotspot-ranking" className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 overflow-x-auto">
                 <div className="flex items-center justify-between mb-3 gap-3">
                   <div>
                     <Eyebrow>INTEL</Eyebrow>
@@ -790,7 +1023,7 @@ export default function App() {
               </div>
 
               {/* Time Series Matrix Graph Box */}
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+              <div data-tour="hourly-curve" className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-2 gap-3">
                   <div>
                     <Eyebrow>CURVE</Eyebrow>
