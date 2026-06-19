@@ -1,5 +1,3 @@
- 
-
 import React, { useMemo, useState, useEffect } from "react";
 import {
   Plus,
@@ -115,11 +113,9 @@ function bandLabel(band) {
   return band === "medium" ? "MED" : band.toUpperCase();
 }
 
-// --- Mappls Native HTML Custom DOM Pin Generator ---
 function addMapplsMarker(mapInstance, h, onClickCallback) {
   if (!mapInstance || !window.mappls) return null;
   const dotColor = BAND_DOT[h.band]?.bg || "#94a3b8";
-  
   const customIconHtml = document.createElement("div");
   customIconHtml.style.position = "relative";
   customIconHtml.style.display = "flex";
@@ -136,7 +132,6 @@ function addMapplsMarker(mapInstance, h, onClickCallback) {
   customIconHtml.style.cursor = "pointer";
   customIconHtml.style.boxShadow = "0 2px 5px rgba(0,0,0,0.3)";
   customIconHtml.innerText = h.id.replace("H-", "");
-
   try {
     const marker = new window.mappls.Marker({
       position: [h.latitude, h.longitude],
@@ -147,7 +142,6 @@ function addMapplsMarker(mapInstance, h, onClickCallback) {
                   </div>`,
       popupOptions: { offset: [0, -10] }
     });
-
     marker.setMap(mapInstance);
 
     customIconHtml.addEventListener("click", () => {
@@ -186,70 +180,68 @@ export default function App() {
   const [offenceStats, setOffenceStats] = useState({});
   const [junctionStats, setJunctionStats] = useState({});
 
-  // Core Mappls Engine Instance References
   const [mapEngine, setMapEngine] = useState(null);
   const [activeMarkers, setActiveMarkers] = useState([]);
   const [heatmapLayer, setHeatmapLayer] = useState(null);
 
-  // --- MAPPLAS CREDENTIAL VALUE ---
-  const MAP_SDK_KEY = "99b2c63c275da11716d06b3d65337b1a"; 
-
+  const MAP_SDK_KEY = "99b2c63c275da11716d06b3d65337b1a";
   const dateInfo = useMemo(() => getDateInfo(forecastDate), [forecastDate]);
+  
+  // Unified Coordinates for Frontend Requests (Matches Map Center)
+  const defaultLat = 12.9716;
+  const defaultLng = 77.5946;
 
+  // Live Deployed Backend Endpoint
+  const API_BASE_URL = "https://enforcesmart-backend.onrender.com";
+
+  // ─── Fetch hotspots + stats ONCE (or when date changes) ───────────────────
   useEffect(() => {
     setLoading(true);
-    
-    const fetchHotspots = fetch(`http://127.0.0.1:8000/predict/hotspots?date=${forecastDate}`).then((res) => res.json());
-    const fetchHeatmap = fetch(`http://127.0.0.1:8000/heatmap/violations?start_date=${forecastDate}&end_date=${forecastDate}&hour=${hourOfDay}`).then((res) => res.json());
-    const fetchHourly = fetch(`http://127.0.0.1:8000/stats/hourly?date=${forecastDate}`).then((res) => res.json()).catch(() => ({}));
-    const fetchOffences = fetch(`http://127.0.0.1:8000/stats/offence?start_date=${forecastDate}&end_date=${forecastDate}`).then((res) => res.json()).catch(() => ({}));
-    const fetchJunctions = fetch(`http://127.0.0.1:8000/stats/junctions?start_date=${forecastDate}&end_date=${forecastDate}`).then((res) => res.json()).catch(() => ({}));
 
-    Promise.all([fetchHotspots, fetchHeatmap, fetchHourly, fetchOffences, fetchJunctions])
-      .then(([data, heatData, hourlyData, offenceData, junctionData]) => {
-        if (heatData) setHeatmapPoints(heatData);
-        if (!(offenceData instanceof Error) && offenceData.status !== 404) setOffenceStats(offenceData);
-        if (!(junctionData instanceof Error) && junctionData.status !== 404) setJunctionStats(junctionData);
-        setHourlyStats(hourlyData);
+    const fetchHotspots = fetch(
+      `${API_BASE_URL}/predict/hotspots?center_lat=${defaultLat}&center_lng=${defaultLng}&radius_km=50.0`
+    ).then((r) => r.json());
 
-        if (data && data.hotspots) {
+    const fetchHourly   = fetch(`${API_BASE_URL}/stats/hourly`).then((r) => r.json()).catch(() => ({}));
+    const fetchOffences = fetch(`${API_BASE_URL}/stats/offence?start_date=2023-01-01&end_date=2023-12-31`).then((r) => r.json()).catch(() => ({}));
+    const fetchJunctions= fetch(`${API_BASE_URL}/stats/junctions?start_date=2023-01-01&end_date=2023-12-31`).then((r) => r.json()).catch(() => ({}));
+
+    Promise.all([fetchHotspots, fetchHourly, fetchOffences, fetchJunctions])
+      .then(([data, hourlyData, offenceData, junctionData]) => {
+        setHourlyStats(hourlyData || {});
+        if (!(offenceData instanceof Error)) setOffenceStats(offenceData);
+        if (!(junctionData instanceof Error)) setJunctionStats(junctionData);
+        if (data?.hotspots) {
           const validRaw = data.hotspots.filter(
             (h) => Number.isFinite(h.latitude) && Number.isFinite(h.longitude)
           );
           const processed = validRaw.map((h, i) => {
             const cleanViolation = cleanText(h.dominantViolation);
-            const cleanVehicle = cleanText(h.dominantVehicle);
-            const computedBand = h.band || (h.score >= 70 ? "high" : h.score >= 40 ? "medium" : "low");
-            
-            let dispatchConfig = null;
-            if (computedBand === "high" || computedBand === "medium") {
-              dispatchConfig = {
-                type: "monitor",
-                patrol: computedBand === "high" ? 2 : 1,
-                deployBy: h.peak ? h.peak.split("–")[0] || "12:15" : "12:15",
-                action: `Position patrol near zone from ${h.peak ? h.peak.split("–")[0] : "12:15"}. Issue advisory; tow only on repeat offence.`,
-              };
-            } else {
-              dispatchConfig = {
-                type: "routine",
-                action: "No active deployment required. Include in standard beat patrol pass.",
-              };
-            }
+            const cleanVehicle   = cleanText(h.dominantVehicle);
+            const computedBand   = h.band || (h.score >= 70 ? "high" : h.score >= 40 ? "medium" : "low");
 
-            const scaledFrequency = Math.min(100, Math.floor((h.violationFrequency / 1000) * 100)) || 45;
+            const dispatchConfig =
+              computedBand === "high" || computedBand === "medium"
+                ? {
+                    type: "monitor",
+                    patrol: computedBand === "high" ? 2 : 1,
+                    deployBy: h.peak?.split("–")[0] || "12:15",
+                    action: `Position patrol near zone from ${h.peak?.split("–")[0] ?? "12:15"}. Issue advisory; tow only on repeat offence.`,
+                  }
+                : { type: "routine", action: "No active deployment required. Include in standard beat patrol pass." };
 
             return {
               id: h.id || `H-${i}`,
               name: `${cleanViolation} Detection Zone`,
               area: `Sector Hub Line (Lat: ${h.latitude.toFixed(3)})`,
-              cluster: `Cluster #${h.id.replace("H-", "")}`,
+              cluster: `Cluster #${h.id?.replace("H-", "")}`,
               band: computedBand,
               score: h.score,
-              peak: h.peak || "12:00-15:00",
+              peak: h.peak || "12:00–15:00",
               day: dateInfo.weekdayShort,
               dominantVehicle: cleanVehicle,
               dominantViolation: cleanViolation,
-              violationFrequency: scaledFrequency,
+              violationFrequency: Math.min(100, Math.floor((h.violationFrequency / 1000) * 100)) || 45,
               junctionProximity: Math.floor(Math.abs(Math.sin(i)) * 40) + 50,
               avgBlocking: Math.floor(Math.abs(Math.cos(i)) * 50) + 30,
               avgBlockingMinutes: Math.floor(Math.abs(Math.cos(i)) * 25) + 15,
@@ -258,9 +250,9 @@ export default function App() {
               longitude: h.longitude,
               vehicleMix: [
                 { label: "Maxi-Cab", pct: cleanVehicle === "MAXI-CAB" ? 50 : 20, color: "#38bdf8" },
-                { label: "LCV", pct: cleanVehicle === "LCV" ? 50 : 15, color: "#fbbf24" },
-                { label: "Car", pct: cleanVehicle === "CAR" ? 55 : 25, color: "#fb7185" },
-                { label: "Scooter", pct: cleanVehicle === "SCOOTER" ? 60 : 15, color: "#34d399" },
+                { label: "LCV",      pct: cleanVehicle === "LCV"      ? 50 : 15, color: "#fbbf24" },
+                { label: "Car",      pct: cleanVehicle === "CAR"      ? 55 : 25, color: "#fb7185" },
+                { label: "Scooter",  pct: cleanVehicle === "SCOOTER"  ? 60 : 15, color: "#34d399" },
               ],
               repeatHotspot: h.score >= 50,
               dispatch: dispatchConfig,
@@ -268,21 +260,34 @@ export default function App() {
           });
 
           setHotspots(processed);
-          if (processed.length > 0) {
-            setSelectedId(processed[0].id);
-          }
+          if (processed.length > 0) setSelectedId(processed[0].id);
         }
         setLoading(false);
       })
       .catch((err) => {
-        console.error("Connection link broke with FastAPI platform framework:", err);
+        console.error("FastAPI connection error:", err);
         setLoading(false);
       });
-  }, [forecastDate, hourOfDay, dateInfo.weekdayShort]);
+  }, [forecastDate]);
 
-  const selected = hotspots.find((h) => h.id === selectedId) || hotspots[0];
+
+  // ─── Re-fetch heatmap whenever HOUR changes ────────────────────────────────
+  useEffect(() => {
+    fetch(
+      `${API_BASE_URL}/heatmap/violations?center_lat=${defaultLat}&center_lng=${defaultLng}&radius_km=50.0&hour=${hourOfDay}`
+    )
+      .then((r) => r.json())
+      .then((heatData) => {
+        if (Array.isArray(heatData)) setHeatmapPoints(heatData);
+      })
+      .catch(console.error);
+  }, [hourOfDay]);
+
+  const selected = hotspots.find((h) => h.id === selectedId) || hotspots[0] || null;
+  
+  // Dynamic arrays fully controlled by High/Medium/Low state buttons
   const visibleHotspots = hotspots.filter((h) => activeBands.has(h.band));
-  const dispatchHotspots = hotspots.filter((h) => h.dispatch);
+  const dispatchHotspots = hotspots.filter((h) => h.dispatch && activeBands.has(h.band));
   
   const curveData = useMemo(() => {
     if (hourlyStats && Object.keys(hourlyStats).length > 0) {
@@ -316,10 +321,9 @@ export default function App() {
     if (firstValid) {
       return [firstValid.latitude, firstValid.longitude];
     }
-    return [12.9716, 77.5946];
+    return [defaultLat, defaultLng];
   }, [selected, hotspots]);
 
-  // --- Integrated Native Mappls Script Injector ---
   useEffect(() => {
     if (activeView !== "map" || loading) return;
 
@@ -352,8 +356,6 @@ export default function App() {
           zoom: zoom,
           zoomControl: false,
         });
-
-        // SAFETY GATE: Only activate engine context once loaded fully
         mapInstance.addListener("load", () => {
           setMapEngine(mapInstance);
         });
@@ -373,7 +375,6 @@ export default function App() {
     };
   }, [activeView, loading]);
 
-  // Sync position shifts smoothly
   useEffect(() => {
     if (mapEngine && typeof mapEngine.setCenter === "function") {
       mapEngine.setCenter({ lat: mapCenter[0], lng: mapCenter[1] });
@@ -381,12 +382,9 @@ export default function App() {
     }
   }, [mapCenter, zoom, mapEngine]);
 
-  // Dynamic Layer Marker Generator WITH EXPLICIT OBJECT VALIDATION CHECK
   useEffect(() => {
-    // If mapEngine isn't completely resolved, drop completely to stop crash
     if (!mapEngine || typeof mapEngine.addListener !== "function") return;
 
-    // Clear previous markers safely
     activeMarkers.forEach((m) => {
       if (m && typeof m.setMap === "function") m.setMap(null);
     });
@@ -403,13 +401,10 @@ export default function App() {
     setActiveMarkers(standardPins);
   }, [visibleHotspots, mapEngine]);
 
-  // --- Heatmap Layer Renderer ---
-  // Mirrors the marker effect above: waits for the map engine, then
-  // (re)builds the Mappls HeatmapLayer from the fetched violation points.
+  // ─── Sync Heatmap Layer with Active Band Toggles ───────────────────────────
   useEffect(() => {
     if (!mapEngine || typeof mapEngine.addListener !== "function" || !window.mappls) return;
 
-    // Remove any previously rendered heatmap before drawing a new one
     if (heatmapLayer) {
       if (typeof heatmapLayer.remove === "function") {
         heatmapLayer.remove();
@@ -425,6 +420,15 @@ export default function App() {
 
     const heatData = heatmapPoints
       .filter((p) => p && p.latitude != null && p.longitude != null)
+      .filter((p) => {
+        const parentCluster = hotspots.find(
+          (h) => Math.abs(h.latitude - p.latitude) < 0.04 && Math.abs(h.longitude - p.longitude) < 0.04
+        );
+        if (parentCluster) {
+          return activeBands.has(parentCluster.band);
+        }
+        return true; 
+      })
       .map((p) => ({ lat: p.latitude, lng: p.longitude }));
 
     if (heatData.length === 0) {
@@ -451,7 +455,7 @@ export default function App() {
     } catch (err) {
       console.error("Heatmap layer failed to render:", err);
     }
-  }, [heatmapPoints, mapEngine]);
+  }, [heatmapPoints, mapEngine, activeBands, hotspots]);
 
   if (loading && hotspots.length === 0) {
     return (
@@ -625,7 +629,7 @@ export default function App() {
                 <p className="text-xs text-slate-500">Model feature breakdown</p>
               </div>
 
-              {selected && (
+              {selected ? (
                 <>
                   <div className="flex items-start justify-between border-b border-slate-800 pb-3">
                     <div>
@@ -666,6 +670,8 @@ export default function App() {
                     <StatCard label="REPEAT HOTSPOT" value={selected.repeatHotspot ? "Yes" : "No"} />
                   </div>
                 </>
+              ) : (
+                <div className="text-slate-500 text-xs py-10 text-center">No active coordinates selected.</div>
               )}
             </div>
           </div>
@@ -680,6 +686,7 @@ export default function App() {
               <p className="text-xs text-slate-500">AI predictions converted into concrete enforcement instructions</p>
             </div>
 
+            {/* Grid responds to the filtered band selections */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {dispatchHotspots.map((h) => {
                 const isMonitor = h.dispatch.type === "monitor";
@@ -723,6 +730,11 @@ export default function App() {
                   </div>
                 );
               })}
+              {dispatchHotspots.length === 0 && (
+                <div className="col-span-full border border-dashed border-slate-800 rounded-xl p-8 text-center text-xs text-slate-500">
+                  No patrol metrics match current risk filter parameters.
+                </div>
+              )}
             </div>
 
             {/* Ranking Table & Curves */}
@@ -770,6 +782,11 @@ export default function App() {
                         <td className="py-2 pr-2 text-slate-400">{h.dominantViolation}</td>
                       </tr>
                     ))}
+                    {visibleHotspots.length === 0 && (
+                      <tr>
+                        <td colSpan="6" className="py-6 text-center text-slate-500">No rows found matching selection.</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
