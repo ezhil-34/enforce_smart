@@ -5,7 +5,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Info,
-  ChevronRight,
+  ChevronRight,Car ,
 } from "lucide-react";
 import {
   LineChart,
@@ -460,7 +460,7 @@ export default function App() {
   if (loading && hotspots.length === 0) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col items-center justify-center font-mono text-xs gap-2">
-        <span className="animate-pulse text-cyan-400">LOADING ENFORCESMART AI CORE BACKEND...</span>
+        <span className="animate-pulse text-cyan-400">LOADING ENFORCESMART ...</span>
         <span className="text-slate-600">Querying live data frames for {forecastDate}</span>
       </div>
     );
@@ -472,14 +472,12 @@ export default function App() {
         {/* Header Module */}
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div className="flex items-start gap-3">
-            <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center font-bold text-slate-950 shrink-0">
-              ES
-            </div>
+            <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center shrink-0">
+  <Car className="h-6 w-6 text-slate-950" strokeWidth={2.2} />
+</div>
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-lg font-semibold text-white">EnforceSmart</h1>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">V1</span>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">MVP</span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5 max-w-md">
                 Predicts where illegal parking will choke roads — tells enforcement exactly where and when to act.
